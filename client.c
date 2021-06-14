@@ -92,13 +92,11 @@ int main()
     while((op = menu()) != '3') {
         if(op == '0' || op == '1') {
             if(op == '0') {
-                // Open seq file
                 if((fp = fopen("seq.txt", "r")) == NULL) {
                     perror("Error opening the file");
                     exit(EXIT_FAILURE);
                 }
             } else if(op == '1') {
-                // Open seq file
                 if((fp = fopen("ref.txt", "r")) == NULL) {
                     perror("Error opening the file");
                     exit(EXIT_FAILURE);
@@ -142,8 +140,6 @@ int main()
                 p = file + bytes_written;
             }
 
-            // Receive OK message from server 
-
             fclose(fp);
             free(file);
         }   else if (op == '2') {
@@ -171,6 +167,6 @@ int main()
     }
 
     close(sockfd);
-    printf("[+]Connection closed.\n");
+    printf("[+]Connection terminated.\n");
     return 0;
 }
