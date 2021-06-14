@@ -6,16 +6,102 @@
 #include <syslog.h>
 #include <fcntl.h>
 #define SIZE 1024
+#define FILECHUNK 4096
 #define DEBUG 1
 
-void writeFile(int sockfd) {
-    int fd = open("hello3.txt", O_WRONLY | O_CREAT);
-    char buff[4096];
+enum _OPTIONS {
+    SEQ,
+    REF,
+    EXIT
+};
+
+char *seqPath;
+char *refPath;
+
+void writeFile(int sockfd, int fd) {
+    char buff[FILECHUNK];
     int cRead;
-    while((cRead = read(sockfd, buff, sizeof(buff))) > 0) {
+    while(1) {
+        cRead = read(sockfd, buff, sizeof(buff));
+        if(cRead <= 0) {
+            break;
+            return;
+        }
         write(fd, buff, cRead);
-        bzero(buff, 4096);
+        bzero(buff, FILECHUNK);
     }
+    return;
+}
+
+void readOption(int sockfd) {
+    char buff[SIZE] = {0};
+    read(sockfd, buff, SIZE);
+    printf("%s", buff);
+}
+
+void setup(int sockfd) {
+    char *fName = malloc(sizeof(char) * SIZE);
+    int fd, cRead;
+    char clientMsg[SIZE] = {0};
+
+    while ((cRead = read(sockfd, clientMsg, sizeof(clientMsg))) > 0) {
+        if(strcmp(clientMsg, "0") == 0) {
+            fName = "seq.txt";
+            if((fd = open(fName, O_WRONLY | O_CREAT)) == -1) {
+                perror("[-]Error opening file");
+                exit(EXIT_FAILURE);
+            }
+            writeFile(sockfd, fd);
+            close(fd);
+        } 
+        else if(strcmp(clientMsg, "1") == 0) {
+            fName = "ref.txt";
+            if((fd = open(fName, O_WRONLY | O_CREAT)) == -1) {
+                perror("[-]Error opening file");
+                exit(EXIT_FAILURE);
+            }
+            writeFile(sockfd, fd);
+            close(fd);
+        }
+        bzero(clientMsg, SIZE);
+        bzero(fName, SIZE);
+    }
+
+    // while(recv(sockfd, buffer, SIZE, 0)) {
+    //     // printf("%s\n", buffer);
+    //     switch (option)
+    //     {
+    //         case SEQ:
+    //         {
+    //             printf("INTRODUCING SEQ...\n");
+    //             fName = "seq.txt";
+    //             if((fd = open(fName, O_WRONLY | O_CREAT)) == -1) {
+    //                 perror("[-]Error opening file");
+    //                 exit(EXIT_FAILURE);
+    //             }
+    //             writeFile(sockfd, fd);
+    //             close(fd);
+    //             break;
+    //         }
+    //         case REF:
+    //         {
+    //             printf("INTRODUCING REF...\n");
+    //             fName = "ref.txt";
+    //             if((fd = open(fName, O_WRONLY | O_CREAT)) == -1) {
+    //                 perror("[-]Error opening file");
+    //                 exit(EXIT_FAILURE);
+    //             }
+    //             writeFile(sockfd, fd);
+    //             close(fd);
+    //             break;
+    //         }
+    //         case EXIT: {
+    //             break;
+    //             return;
+    //         }
+    //     }
+    //     bzero(buffer, SIZE);
+    // }
 }
 
 int main()
@@ -82,10 +168,14 @@ int main()
         #endif
         syslog(LOG_NOTICE, "Connection Accepted");
 
-        writeFile(clientfd);
+        // setup(clientfd);
+
+        int fd = open("ref2.txt", O_WRONLY | O_CREAT);
+        writeFile(clientfd, fd);
         // write_file(clientfd);
         printf("[+]Data written in the file successfully.\n");
         printf("[+]Connection terminated.\n");
+        // fflush(stdout);
     }
     return 0;
 }
