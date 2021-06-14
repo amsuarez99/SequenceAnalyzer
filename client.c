@@ -12,7 +12,7 @@
 void *getInput() {
     char *input = (char *) malloc(sizeof(char) * SIZE);
     memset(input, '\0', SIZE);
-    scanf("%s", input);
+    scanf(" %s", input);
     #if DEBUG == 1
     printf("You entered: %s\n", input);
     #endif
@@ -86,21 +86,21 @@ int main()
 
     FILE *fp;
     char op, message[SIZE] = {0}, status[3] = {0};
-    char *file = NULL;
+    char *file = NULL, *fName;
     int fSize;
 
     while((op = menu()) != '3') {
         if(op == '0' || op == '1') {
+            printf("Enter file name: ");
+            fName = getInput();
+            if((fp = fopen(fName, "r")) == NULL) {
+                perror("Error opening the file");
+                exit(EXIT_FAILURE);
+            }
             if(op == '0') {
-                if((fp = fopen("seq.txt", "r")) == NULL) {
-                    perror("Error opening the file");
-                    exit(EXIT_FAILURE);
-                }
+                // Verify Seq
             } else if(op == '1') {
-                if((fp = fopen("ref.txt", "r")) == NULL) {
-                    perror("Error opening the file");
-                    exit(EXIT_FAILURE);
-                }
+                // Verify Ref
             }
 
             // Count file length
@@ -119,14 +119,12 @@ int main()
 
             // Send length to server
             sprintf(message, "%zu", newLen);
-            printf("%s\n", message);
             if(send(sockfd, message, SIZE, 0) == -1) {
                 perror("Error sending message length");
                 exit(EXIT_FAILURE);
             }
 
-            printf("%zu\n", newLen);
-            printf("Message tail: %s\n", file + newLen - 11); // Show last 10 chars of seq
+            printf("Length sent: %zu\n", newLen);
 
             // Send File in chunks
             void *p = file;
@@ -139,9 +137,11 @@ int main()
                 }
                 p = file + bytes_written;
             }
+            printf("Message sent: %s (SHOWING TAIL)\n", file + newLen - 11); // Show last 10 chars of seq
 
             fclose(fp);
             free(file);
+            free(fName);
         }   else if (op == '2') {
             // Want to send 2 characters ['R','\0']
             memcpy(message, "2", 2);

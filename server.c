@@ -13,8 +13,35 @@
 struct _Sequence {
     char *sequenceString;
     int found;
+    size_t size;
     int position;
 };
+
+int separateSequences(char *seq, struct _Sequence* seqs) {
+    // size_t j;
+    // seqs = malloc(sizeof *seqs * 20);
+    // for(j = 0; j < 20; j++) {
+    //     seqs[j] = malloc(sizeof *seqs[j]) // Allocate _Sequence
+    //     seqs[j]->
+    // }
+    const char delim[2] = "\n";
+    char *token;
+    int pos = 0;
+
+    // get the first token
+    token = strtok(seq, delim);
+
+    // walk through other tokens
+    while(token != NULL) {
+        seqs[pos].size = strlen(token);
+        seqs[pos].sequenceString = strdup(token);
+        seqs[pos].found = 0;
+        seqs[pos].position = -1;
+        token = strtok(NULL, delim);
+        pos++;
+    }
+    return pos;
+}
 
 int main()
 {
@@ -25,6 +52,10 @@ int main()
 
     char clientMsg[SIZE] = {0};
     char *buffer = NULL, *sequence = NULL, *reference = NULL;
+
+    // struct _Sequence **sequences;
+    struct _Sequence sequences[1024];
+    size_t nSequences;
 
     char option;
     int uploadedSeq = 0, uploadedRef = 0;
@@ -104,11 +135,17 @@ int main()
             *(buffer + strlen(buffer) - 1) = '\0';
             if(option == '0') {
                 if(uploadedSeq) {
+                    // Reset sequences
+                    bzero(sequences, sizeof(sequences));
                     free(sequence);
                 }
                 uploadedSeq = 1;
                 sequence = strdup(buffer);
                 printf("[+]Received sequence: %s (SHOWING TAIL)\n", sequence + strlen(sequence) - 10);
+                nSequences = separateSequences(sequence, sequences);
+                for(size_t j = 0; j < nSequences; j++) {
+                    printf("%s\n", sequences[j].sequenceString + sequences[j].size - 10);
+                }
             } else if(option == '1') {
                 if(uploadedRef) {
                     free(reference);
@@ -138,6 +175,9 @@ int main()
         if(uploadedSeq) {
             free(sequence);
             uploadedSeq = 0;
+            
+            bzero(sequences, sizeof(sequences));
+            nSequences = -1;
         }
         if(uploadedRef) {
             free(reference);
