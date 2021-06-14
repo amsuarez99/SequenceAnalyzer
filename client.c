@@ -20,21 +20,13 @@ void *getInput() {
     return input;
 }
 
-void sendFile(int sockfd, int fd) {
-    char buff[FILECHUNK];
-    int cRead;
-    while((cRead = read(fd, buff, sizeof(buff))) > 0) {
-        write(sockfd, buff, cRead);
-        bzero(buff, FILECHUNK);
-    }
-}
-
 char menu() {
     char op;
     printf("===MAIN MENU===\n");
     printf("0) Upload Sequence\n");
     printf("1) Upload Reference\n");
-    printf("2) Exit\n");
+    printf("2) View Results\n");
+    printf("3) Exit\n");
     printf("Please enter an option\n");
     scanf("%c", &op);
     fflush(stdin);
@@ -43,7 +35,6 @@ char menu() {
 
 int getFileSize(FILE *fp) {
     int fSize;
-    // Count seq file length
     fseek(fp, 0, SEEK_END);
     fSize = ftell(fp);
     rewind(fp);
@@ -93,30 +84,38 @@ int main()
     }
     printf("[+]Connected to Server.\n");
 
-    FILE *fref, *fseq;
-    char op, message[SIZE] = {0};
+    FILE *fp;
+    char op, message[SIZE] = {0}, status[3] = {0};
     char *file = NULL;
     int fSize;
 
-    while((op = menu()) != '2') {
-        if(op == '0') {
-            // Open seq file
-            if((fseq = fopen("seq.txt", "r")) == NULL) {
-                perror("Error opening the file");
-                exit(EXIT_FAILURE);
+    while((op = menu()) != '3') {
+        if(op == '0' || op == '1') {
+            if(op == '0') {
+                // Open seq file
+                if((fp = fopen("seq.txt", "r")) == NULL) {
+                    perror("Error opening the file");
+                    exit(EXIT_FAILURE);
+                }
+            } else if(op == '1') {
+                // Open seq file
+                if((fp = fopen("ref.txt", "r")) == NULL) {
+                    perror("Error opening the file");
+                    exit(EXIT_FAILURE);
+                }
             }
 
-            // Count seq file length
-            fSize = getFileSize(fseq);
+            // Count file length
+            fSize = getFileSize(fp);
 
             // Allocate buffer to store file
             file = malloc(sizeof(char) * (fSize + 2)); // Add 2 (1 for option, 1 for null)
-            size_t newLen = fread(file, sizeof(char), fSize, fseq);
-            if ( ferror( fseq ) != 0 ) {
+            size_t newLen = fread(file, sizeof(char), fSize, fp);
+            if ( ferror( fp ) != 0 ) {
                 perror("Error reading file");
                 exit(EXIT_FAILURE);
             } else {
-                file[newLen++] = '0'; // Adds option
+                file[newLen++] = op; // Adds option
                 file[newLen++] = '\0'; // Add NULL terminator
             }
 
@@ -130,7 +129,8 @@ int main()
 
             printf("%zu\n", newLen);
             printf("Message tail: %s\n", file + newLen - 11); // Show last 10 chars of seq
-            // Send File
+
+            // Send File in chunks
             void *p = file;
             int bytes_written = 0;
             while (1)
@@ -142,19 +142,32 @@ int main()
                 p = file + bytes_written;
             }
 
-            // (Optional) Receive OK message from server 
-            char status[3] = {0};
-            SocketReceive(sockfd, status, sizeof(status));
-            if(strcmp(status, "OK") == 0) printf("Upload Success\n");
-            fclose(fseq);
+            // Receive OK message from server 
+
+            fclose(fp);
             free(file);
-        } else if(op == '1') {
-            // strcpy(message, "1");
-        } else {
+        }   else if (op == '2') {
+            // Want to send 2 characters ['R','\0']
+            memcpy(message, "2", 2);
+            send(sockfd, message, SIZE, 0);
+            send(sockfd, "R", 2, 0);
+
+            bzero(message, SIZE);
+            // RECEIVE MESSAGE FROM RESULT OP
+            SocketReceive(sockfd, message, SIZE);
+            printf("%s", message);
+        } else  {
             printf("Please enter a valid option");
             continue;
         }
-        // close(fd);
+
+        // (Optional) Receive OK message from server 
+        SocketReceive(sockfd, status, sizeof(status));
+        if(strcmp(status, "OK") == 0) printf("Operation Completed\n");
+
+        // RESET
+        bzero(status, sizeof(status));
+        bzero(message, SIZE);
     }
 
     close(sockfd);
