@@ -150,8 +150,17 @@ int main()
 
             bzero(message, SIZE);
             // RECEIVE MESSAGE FROM RESULT OP
-            SocketReceive(sockfd, message, SIZE);
-            printf("%s", message);
+            // SocketReceive(sockfd, message, SIZE);
+            int xRead;
+            while(1) {
+                xRead = read(sockfd, message, SIZE);
+                printf("%s", message);
+                if(strcmp(message, "DONE") == 0) {
+                    printf("\n");
+                    break;
+                }
+                bzero(message, SIZE);
+            }
         } else  {
             printf("Please enter a valid option");
             continue;

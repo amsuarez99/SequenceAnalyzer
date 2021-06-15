@@ -21,6 +21,7 @@ struct thread_attributes
     size_t nSequences;
     int *nFound;
     char *ref;
+    char *refcpy;
     struct _Sequence *sequences;
 };
 
@@ -30,6 +31,18 @@ struct _Sequence
     size_t size;
     int position;
 };
+
+float getPercentage(char *refcpy) {
+
+    int i = 0;
+    char c;
+    int ocurrences = 0;
+    while((c = refcpy[i++]) != '\0')
+        if(c == 'x') ocurrences++;
+    // printf("%s\n", refcpy);
+    // printf("ocurrences: %d\n", ocurrences);
+    return (float) ocurrences / (float) strlen(refcpy) * 100;
+}
 
 void *findSeq(void *x)
 {
@@ -53,6 +66,9 @@ void *findSeq(void *x)
                     arguments.sequences[index].position);
             pthread_mutex_lock(&lock);
             *arguments.nFound = *arguments.nFound + 1;
+            // strncpy(arguments.refcpy + arguments.sequences[index].position, "x", arguments.sequences[index].size);
+            memset(arguments.refcpy + arguments.sequences[index].position, 'x',
+                   arguments.sequences[index].size);
             pthread_mutex_unlock(&lock);
         } else {
             printf("Sequence %d: %*.*s (HEAD) not found\n",
@@ -65,26 +81,36 @@ void *findSeq(void *x)
     return NULL;
 }
 
-void copy(struct _Sequence *seqs, size_t nSeqs, size_t nFound) {
-
-}
-
-void printResults(struct _Sequence *seqs, size_t nSeqs, size_t nFound)
-{
-    printf("%zu sequences were found out of the %zu provided\n", nFound, nSeqs);
-    printf("Sequences: (ONLY SHOWING TAIL)\n");
-    for (size_t i = 0; i < nSeqs; i++)
-    {
+void sendRes(int socketfd, struct _Sequence *seqs, size_t nSeqs, size_t nFound, float percentage) {
+    char buffer[SIZE] = {0};
+    int j;
+    sprintf(buffer, "=== RESULTS ===\n");
+    send(socketfd, buffer, SIZE, 0);
+    bzero(buffer, SIZE);
+    for(size_t i = 0; i < nSeqs; i++) {
         if (seqs[i].position != -1)
-            printf("(Sequence #%zu) %s found at character %d\n",
-                   i,
-                   seqs[i].sequenceString + seqs[i].size - 10,
-                   seqs[i].position);
+            sprintf(buffer, "Sequence %zu: %*.*s (HEAD) found at character %d\n", 
+                            i,
+                            1, 10,
+                            seqs[i].sequenceString,
+                            seqs[i].position);
         else
-            printf("(Sequence #%zu) %s not found\n",
-                   i,
-                   seqs[i].sequenceString + seqs[i].size - 10);
+            sprintf(buffer, "Sequence %zu: %*.*s (HEAD) not found\n",
+                    i,
+                    1, 10, 
+                    seqs[i].sequenceString);
+        send(socketfd, buffer, SIZE, 0);
+        bzero(buffer, SIZE);
     }
+
+
+    j = sprintf(buffer, "Covered %f%% of reference genome\n", percentage);
+    j += sprintf(buffer + j, "Mapped %zu sequences\n", nFound);
+    j += sprintf(buffer + j, "Couldn\'t map %zu sequences\n", nSeqs - nFound);
+    send(socketfd, buffer, SIZE, 0);
+    bzero(buffer, SIZE);
+    sprintf(buffer, "DONE");
+    send(socketfd, buffer, SIZE, 0);
 }
 
 int separateSequences(char *seq, struct _Sequence *seqs)
@@ -118,7 +144,7 @@ int main()
     struct sockaddr_in server, client;
 
     char clientMsg[SIZE] = {0};
-    char *buffer = NULL, *sequence = NULL, *reference = NULL;
+    char *buffer = NULL, *sequence = NULL, *reference = NULL, *refCpy = NULL;
     char *offset;
 
     // struct _Sequence **sequences;
@@ -230,9 +256,10 @@ int main()
             {
                 if (uploadedSeq && uploadedRef)
                 {
+                    refCpy = strdup(reference);
                     nFound = 0;
                     printf("[+]Client wants results...\n");
-                    strcpy(clientMsg, "====RESULTS====\nPercentage covered: 20%\nSequences used:\nAGAGAGGATT\nAGGGAGGAGT\n");
+                    // strcpy(clientMsg, "====RESULTS====\nPercentage covered: 20%\nSequences used:\nAGAGAGGATT\nAGGGAGGAGT\n");
                     const size_t nThreads = nSequences < NTHREADS ? nSequences : NTHREADS; // Get min
                     pthread_t threads[nThreads];
                     struct thread_attributes thread_args[nThreads];
@@ -246,12 +273,12 @@ int main()
                     size_t load = nSequences/nThreads;
                     for (size_t i = 0; i < nThreads; ++i)
                     {
-                        struct thread_attributes a = {i, nThreads, nSequences, &nFound, reference, sequences};
+                        struct thread_attributes a = {i, nThreads, nSequences, &nFound, reference, refCpy, sequences};
                         thread_args[i] = a;
                         pthread_create(&threads[i], NULL, findSeq, (void *)&thread_args[i]);
                     }
 
-                    /* wait for threads to finish */
+                    // Wait for threads to finish
                     for (size_t i = 0; i < nThreads; ++i)
                     {
                         pthread_join(threads[i], NULL);
@@ -259,14 +286,16 @@ int main()
                     pthread_mutex_destroy(&lock);
 
                     printf("Found sequences %d\n", nFound);
-                    // printResults(sequences, nSequences, nFound);
+                    double percentage = getPercentage(refCpy);
+                    sendRes(clientfd, sequences, nSequences, nFound, percentage);
+                    free(refCpy);
                 }
                 else
                 {
                     printf("[+]Can't view results without uploading ref or seq\n");
                     strcpy(clientMsg, "Can't view results without uploading ref or seq\n");
+                    send(clientfd, clientMsg, SIZE, 0);
                 }
-                send(clientfd, clientMsg, SIZE, 0);
             }
 
             // SEND OPERATION COMPLETE
