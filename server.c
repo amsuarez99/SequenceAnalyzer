@@ -12,12 +12,14 @@
 #define PORT 8000
 #define NTHREADS 10
 
+pthread_mutex_t lock;
 
 struct thread_attributes
 {
     size_t thread_num;
     size_t nThreads;
     size_t nSequences;
+    int *nFound;
     char *ref;
     struct _Sequence *sequences;
 };
@@ -49,6 +51,9 @@ void *findSeq(void *x)
                     1, 10, 
                     arguments.sequences[index].sequenceString,
                     arguments.sequences[index].position);
+            pthread_mutex_lock(&lock);
+            *arguments.nFound = *arguments.nFound + 1;
+            pthread_mutex_unlock(&lock);
         } else {
             printf("Sequence %d: %*.*s (HEAD) not found\n",
                     index,
@@ -58,6 +63,10 @@ void *findSeq(void *x)
     }
     fflush(stdout);
     return NULL;
+}
+
+void copy(struct _Sequence *seqs, size_t nSeqs, size_t nFound) {
+
 }
 
 void printResults(struct _Sequence *seqs, size_t nSeqs, size_t nFound)
@@ -221,17 +230,23 @@ int main()
             {
                 if (uploadedSeq && uploadedRef)
                 {
+                    nFound = 0;
                     printf("[+]Client wants results...\n");
-                    // strcpy(clientMsg, "====RESULTS====\nPercentage covered: 20%\nSequences used:\nAGAGAGGATT\nAGGGAGGAGT\n");
+                    strcpy(clientMsg, "====RESULTS====\nPercentage covered: 20%\nSequences used:\nAGAGAGGATT\nAGGGAGGAGT\n");
                     const size_t nThreads = nSequences < NTHREADS ? nSequences : NTHREADS; // Get min
                     pthread_t threads[nThreads];
                     struct thread_attributes thread_args[nThreads];
+
+                    if (pthread_mutex_init(&lock, NULL) != 0) {
+                        perror("Mutex init failed\n");
+                        exit(EXIT_FAILURE);
+                    }
 
                     // Spawn a thread for each row
                     size_t load = nSequences/nThreads;
                     for (size_t i = 0; i < nThreads; ++i)
                     {
-                        struct thread_attributes a = {i, nThreads, nSequences, reference, sequences};
+                        struct thread_attributes a = {i, nThreads, nSequences, &nFound, reference, sequences};
                         thread_args[i] = a;
                         pthread_create(&threads[i], NULL, findSeq, (void *)&thread_args[i]);
                     }
@@ -241,7 +256,9 @@ int main()
                     {
                         pthread_join(threads[i], NULL);
                     }
+                    pthread_mutex_destroy(&lock);
 
+                    printf("Found sequences %d\n", nFound);
                     // printResults(sequences, nSequences, nFound);
                 }
                 else
@@ -274,7 +291,6 @@ int main()
             uploadedRef = 0;
         }
         bzero(clientMsg, SIZE);
-
         close(clientfd);
         printf("[+]Connection terminated.\n");
     }
