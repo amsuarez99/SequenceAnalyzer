@@ -5,12 +5,17 @@
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <pthread.h>
+#include <syslog.h>
+#include <signal.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 
 #define SIZE 1024
 #define DEBUG 1
 #define PORT 8000
 #define NTHREADS 10
 
+char cwd[FILENAME_MAX];
 pthread_mutex_t lock;
 
 struct thread_attributes
@@ -31,6 +36,66 @@ struct _Sequence
     int position;
 };
 
+static void signalHandler(int signo) {
+    if(signo == SIGTERM) {
+        syslog(LOG_NOTICE, "[+]Terminated Daemon");
+        closelog();
+        exit(EXIT_SUCCESS);
+    }
+}
+
+static void daemonize()
+{
+    pid_t pid;
+
+    /* Fork off the parent process */
+    pid = fork();
+
+    /* An error occurred */
+    if (pid < 0)
+        exit(EXIT_FAILURE);
+
+    /* Success: Let the parent terminate */
+    if (pid > 0)
+        exit(EXIT_SUCCESS);
+
+    /* On success: The child process becomes session leader */
+    if (setsid() < 0)
+        exit(EXIT_FAILURE);
+
+    /* Catch, ignore and handle signals */
+    signal(SIGTERM, signalHandler);
+
+    /* Fork off for the second time*/
+    pid = fork();
+
+    /* An error occurred */
+    if (pid < 0)
+        exit(EXIT_FAILURE);
+
+    /* Success: Let the parent terminate */
+    if (pid > 0)
+        exit(EXIT_SUCCESS);
+
+    /* Set new file permissions */
+    umask(0);
+
+    /* Change the working directory to the root directory */
+    /* or another appropriated directory */
+    chdir("/Users/amsua/Documents/Tec/Feb-2021/progra/adn");
+
+    /* Close all open file descriptors */
+    int x;
+    for (x = sysconf(_SC_OPEN_MAX); x >= 0; x--)
+    {
+        close(x);
+    }
+
+    /* Open the log file */
+    openlog("ANALYZER_SERVERD", LOG_PID, LOG_DAEMON);
+}
+
+
 float getPercentage(char *refcpy)
 {
 
@@ -40,8 +105,6 @@ float getPercentage(char *refcpy)
     while ((c = refcpy[i++]) != '\0')
         if (c == 'x')
             ocurrences++;
-    // printf("%s\n", refcpy);
-    // printf("ocurrences: %d\n", ocurrences);
     return (float)ocurrences / (float)strlen(refcpy) * 100;
 }
 
@@ -63,11 +126,6 @@ void *findSeq(void *x)
         if ((offset = strstr(arguments.ref, arguments.sequences[index].sequenceString)) != NULL)
         {
             arguments.sequences[index].position = offset - arguments.ref;
-            printf("Sequence %d: %*.*s (HEAD) found at character %d\n",
-                   index,
-                   1, 10,
-                   arguments.sequences[index].sequenceString,
-                   arguments.sequences[index].position);
             pthread_mutex_lock(&lock);
             *arguments.nFound = *arguments.nFound + 1;
             // strncpy(arguments.refcpy + arguments.sequences[index].position, "x", arguments.sequences[index].size);
@@ -75,15 +133,7 @@ void *findSeq(void *x)
                    arguments.sequences[index].size);
             pthread_mutex_unlock(&lock);
         }
-        else
-        {
-            printf("Sequence %d: %*.*s (HEAD) not found\n",
-                   index,
-                   1, 10,
-                   arguments.sequences[index].sequenceString);
-        }
     }
-    fflush(stdout);
     return NULL;
 }
 
@@ -132,7 +182,6 @@ int separateSequences(char *seq, struct _Sequence *seqs)
     // walk through other tokens
     while (token != NULL)
     {
-        // printf("%s\n%lu\n", token, strlen(token) - 1);
         token[strlen(token) - 1] = '\0';
         seqs[pos].size = strlen(token) - 1;
         seqs[pos].sequenceString = strdup(token);
@@ -145,6 +194,8 @@ int separateSequences(char *seq, struct _Sequence *seqs)
 
 int main()
 {
+    printf("[+]Starting daemon...\n");
+    daemonize();
     char *ip = "127.0.0.1";
     int serverfd, clientfd, readLength;
     socklen_t addr_size;
@@ -167,7 +218,7 @@ int main()
         perror("[-]Error creating socket");
         exit(EXIT_FAILURE);
     }
-    printf("[+]Socket created successfully.\n");
+    syslog(LOG_NOTICE, "[+]Socket created successfully.\n");
 
     //Forcefully attaching socket to the port 8080
     int opt = 1;
@@ -188,7 +239,7 @@ int main()
         perror("[-]Error in bind");
         exit(EXIT_FAILURE);
     }
-    printf("[+]Binding successfull.\n");
+    syslog(LOG_NOTICE, "[+]Binding successfull.\n");
 
     while (1)
     {
@@ -198,7 +249,7 @@ int main()
             perror("[-]Error in listen");
             exit(EXIT_FAILURE);
         }
-        printf("[+]Listening....\n");
+        syslog(LOG_NOTICE, "[+]Listening....\n");
 
         addr_size = sizeof(struct sockaddr_in);
         if ((clientfd = accept(serverfd, (struct sockaddr *)&client, (socklen_t *)&addr_size)) < 0)
@@ -206,13 +257,13 @@ int main()
             perror("[-]Error in accept");
             exit(EXIT_FAILURE);
         }
-        printf("[+]Connection accepted.\n");
+        syslog(LOG_NOTICE, "[+]Connection accepted.\n");
 
         // Receives length of next message
         while ((readLength = recv(clientfd, clientMsg, sizeof(clientMsg), 0)))
         {
             int nextMsgLength = atoi(clientMsg);
-            printf("[+]Message length: %d\n", nextMsgLength);
+            syslog(LOG_NOTICE, "[+]Message length: %d\n", nextMsgLength);
 
             // Allocates mem based on next msg len
             buffer = (char *)malloc(sizeof(char) * nextMsgLength);
@@ -244,7 +295,7 @@ int main()
 
                 // Copy Buffer to sequence
                 sequence = strdup(buffer);
-                printf("[+]Received sequence: %s (SHOWING TAIL)\n", sequence + strlen(sequence) - 10);
+                syslog(LOG_NOTICE, "[+]Received sequence: %s (SHOWING TAIL)\n", sequence + strlen(sequence) - 10);
 
                 // Separate Sequences to array
                 nSequences = separateSequences(sequence, sequences);
@@ -257,7 +308,7 @@ int main()
                 }
                 uploadedRef = 1;
                 reference = strdup(buffer);
-                printf("[+]Received ref: %s (SHOWING TAIL)\n", reference + strlen(reference) - 10);
+                syslog(LOG_NOTICE, "[+]Received ref: %s (SHOWING TAIL)\n", reference + strlen(reference) - 10);
             }
             else if (option == 'R')
             {
@@ -265,7 +316,7 @@ int main()
                 {
                     refCpy = strdup(reference);
                     nFound = 0;
-                    printf("[+]Client wants results...\n");
+                    syslog(LOG_NOTICE, "[+]Client wants results...\n");
                     // strcpy(clientMsg, "====RESULTS====\nPercentage covered: 20%\nSequences used:\nAGAGAGGATT\nAGGGAGGAGT\n");
                     const size_t nThreads = nSequences < NTHREADS ? nSequences : NTHREADS; // Get min
                     pthread_t threads[nThreads];
@@ -293,14 +344,14 @@ int main()
                     }
                     pthread_mutex_destroy(&lock);
 
-                    printf("Found sequences %d\n", nFound);
+                    syslog(LOG_NOTICE, "[+]Found %d sequences\n", nFound);
                     double percentage = getPercentage(refCpy);
                     sendRes(clientfd, sequences, nSequences, nFound, percentage);
                     free(refCpy);
                 }
                 else
                 {
-                    printf("[+]Can't view results without uploading ref or seq\n");
+                    syslog(LOG_NOTICE, "[-]Can't view results without uploading ref or seq\n");
                     strcpy(clientMsg, "Can't view results without uploading ref or seq\n");
                     send(clientfd, clientMsg, SIZE, 0);
                 }
@@ -310,7 +361,6 @@ int main()
             send(clientfd, "OK", 3, 0);
             bzero(clientMsg, SIZE);
             free(buffer);
-            fflush(stdout);
         }
 
         // Reset
@@ -329,7 +379,7 @@ int main()
         }
         bzero(clientMsg, SIZE);
         close(clientfd);
-        printf("[+]Connection terminated.\n");
+        syslog(LOG_NOTICE, "[+]Connection terminated.\n");
     }
     return 0;
 }
