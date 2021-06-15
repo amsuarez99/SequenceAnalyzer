@@ -5,25 +5,80 @@
 #include <arpa/inet.h>
 #include <syslog.h>
 #include <fcntl.h>
+#include <pthread.h>
 #define SIZE 1024
 #define FILECHUNK 4096
 #define DEBUG 1
 #define PORT 8000
+#define NTHREADS 10
 
-struct _Sequence {
+
+struct thread_attributes
+{
+    size_t thread_num;
+    size_t nThreads;
+    size_t nSequences;
+    char *ref;
+    struct _Sequence *sequences;
+};
+
+struct _Sequence
+{
     char *sequenceString;
-    int found;
     size_t size;
     int position;
 };
 
-int separateSequences(char *seq, struct _Sequence* seqs) {
-    // size_t j;
-    // seqs = malloc(sizeof *seqs * 20);
-    // for(j = 0; j < 20; j++) {
-    //     seqs[j] = malloc(sizeof *seqs[j]) // Allocate _Sequence
-    //     seqs[j]->
-    // }
+void *findSeq(void *x)
+{
+    struct thread_attributes arguments;
+    arguments = *((struct thread_attributes *)x);
+    char *offset;
+    int index;
+    int load = arguments.nSequences/arguments.nThreads;
+    if(arguments.thread_num == (arguments.nThreads - 1)) {
+        load += arguments.nSequences - (load * arguments.nThreads);
+    }
+    for(int j = 0; j < load; j++) {
+        index = (arguments.thread_num * arguments.nSequences/arguments.nThreads) + j;
+        if((offset = strstr(arguments.ref, arguments.sequences[index].sequenceString)) != NULL) {
+            arguments.sequences[index].position = offset - arguments.ref;
+            printf("Sequence %d: %*.*s (HEAD) found at character %d\n", 
+                    index,
+                    1, 10, 
+                    arguments.sequences[index].sequenceString,
+                    arguments.sequences[index].position);
+        } else {
+            printf("Sequence %d: %*.*s (HEAD) not found\n",
+                    index,
+                    1, 10, 
+                    arguments.sequences[index].sequenceString);
+        }
+    }
+    fflush(stdout);
+    return NULL;
+}
+
+void printResults(struct _Sequence *seqs, size_t nSeqs, size_t nFound)
+{
+    printf("%zu sequences were found out of the %zu provided\n", nFound, nSeqs);
+    printf("Sequences: (ONLY SHOWING TAIL)\n");
+    for (size_t i = 0; i < nSeqs; i++)
+    {
+        if (seqs[i].position != -1)
+            printf("(Sequence #%zu) %s found at character %d\n",
+                   i,
+                   seqs[i].sequenceString + seqs[i].size - 10,
+                   seqs[i].position);
+        else
+            printf("(Sequence #%zu) %s not found\n",
+                   i,
+                   seqs[i].sequenceString + seqs[i].size - 10);
+    }
+}
+
+int separateSequences(char *seq, struct _Sequence *seqs)
+{
     const char delim[2] = "\n";
     char *token;
     int pos = 0;
@@ -32,10 +87,12 @@ int separateSequences(char *seq, struct _Sequence* seqs) {
     token = strtok(seq, delim);
 
     // walk through other tokens
-    while(token != NULL) {
-        seqs[pos].size = strlen(token);
+    while (token != NULL)
+    {
+        // printf("%s\n%lu\n", token, strlen(token) - 1);
+        token[strlen(token) - 1] = '\0';
+        seqs[pos].size = strlen(token) - 1;
         seqs[pos].sequenceString = strdup(token);
-        seqs[pos].found = 0;
         seqs[pos].position = -1;
         token = strtok(NULL, delim);
         pos++;
@@ -52,16 +109,18 @@ int main()
 
     char clientMsg[SIZE] = {0};
     char *buffer = NULL, *sequence = NULL, *reference = NULL;
+    char *offset;
 
     // struct _Sequence **sequences;
     struct _Sequence sequences[1024];
     size_t nSequences;
 
     char option;
-    int uploadedSeq = 0, uploadedRef = 0;
+    int uploadedSeq = 0, uploadedRef = 0, nFound = 0;
 
     // Create socket fd
-    if((serverfd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
+    if ((serverfd = socket(AF_INET, SOCK_STREAM, 0)) == -1)
+    {
         perror("[-]Error creating socket");
         exit(EXIT_FAILURE);
     }
@@ -88,7 +147,8 @@ int main()
     }
     printf("[+]Binding successfull.\n");
 
-    while(1) {
+    while (1)
+    {
         // Listen
         if (listen(serverfd, 1) != 0)
         {
@@ -98,7 +158,8 @@ int main()
         printf("[+]Listening....\n");
 
         addr_size = sizeof(struct sockaddr_in);
-        if((clientfd = accept(serverfd, (struct sockaddr *)&client, (socklen_t *)&addr_size)) < 0) {
+        if ((clientfd = accept(serverfd, (struct sockaddr *)&client, (socklen_t *)&addr_size)) < 0)
+        {
             perror("[-]Error in accept");
             exit(EXIT_FAILURE);
         }
@@ -111,13 +172,14 @@ int main()
             printf("[+]Message length: %d\n", nextMsgLength);
 
             // Allocates mem based on next msg len
-            buffer = (char *) malloc(sizeof(char) * nextMsgLength);
+            buffer = (char *)malloc(sizeof(char) * nextMsgLength);
             bzero(buffer, nextMsgLength);
 
             // Receive message in chunks
             int n = 0;
             int xRead;
-            while(n < nextMsgLength) {
+            while (n < nextMsgLength)
+            {
                 xRead = read(clientfd, clientMsg, SIZE);
                 memcpy(buffer + n, clientMsg, xRead);
                 bzero(clientMsg, SIZE);
@@ -133,8 +195,10 @@ int main()
             // View Option
             option = *(buffer + strlen(buffer) - 1);
             *(buffer + strlen(buffer) - 1) = '\0';
-            if(option == '0') {
-                if(uploadedSeq) {
+            if (option == '0')
+            {
+                if (uploadedSeq)
+                {
                     // Reset sequences
                     bzero(sequences, sizeof(sequences));
                     free(sequence);
@@ -143,21 +207,46 @@ int main()
                 sequence = strdup(buffer);
                 printf("[+]Received sequence: %s (SHOWING TAIL)\n", sequence + strlen(sequence) - 10);
                 nSequences = separateSequences(sequence, sequences);
-                for(size_t j = 0; j < nSequences; j++) {
-                    printf("%s\n", sequences[j].sequenceString + sequences[j].size - 10);
-                }
-            } else if(option == '1') {
-                if(uploadedRef) {
+            }
+            else if (option == '1')
+            {
+                if (uploadedRef)
+                {
                     free(reference);
                 }
                 uploadedRef = 1;
                 reference = strdup(buffer);
                 printf("[+]Received ref: %s (SHOWING TAIL)\n", reference + strlen(reference) - 10);
-            } else if(option == 'R') {
-                if(uploadedSeq && uploadedRef) {
+            }
+            else if (option == 'R')
+            {
+                if (uploadedSeq && uploadedRef)
+                {
                     printf("[+]Client wants results...\n");
                     strcpy(clientMsg, "====RESULTS====\nPercentage covered: 20%\nSequences used:\nAGAGAGGATT\nAGGGAGGAGT\n");
-                } else {
+                    const size_t nThreads = nSequences < NTHREADS ? nSequences : NTHREADS; // Get min
+                    pthread_t threads[nThreads];
+                    struct thread_attributes thread_args[nThreads];
+
+                    // Spawn a thread for each row
+                    size_t load = nSequences/nThreads;
+                    for (size_t i = 0; i < nThreads; ++i)
+                    {
+                        struct thread_attributes a = {i, nThreads, nSequences, reference, sequences};
+                        thread_args[i] = a;
+                        pthread_create(&threads[i], NULL, findSeq, (void *)&thread_args[i]);
+                    }
+
+                    /* wait for threads to finish */
+                    for (size_t i = 0; i < nThreads; ++i)
+                    {
+                        pthread_join(threads[i], NULL);
+                    }
+
+                    // printResults(sequences, nSequences, nFound);
+                }
+                else
+                {
                     printf("[+]Can't view results without uploading ref or seq\n");
                     strcpy(clientMsg, "Can't view results without uploading ref or seq\n");
                 }
@@ -172,14 +261,16 @@ int main()
         }
 
         // Reset
-        if(uploadedSeq) {
+        if (uploadedSeq)
+        {
             free(sequence);
             uploadedSeq = 0;
-            
+
             bzero(sequences, sizeof(sequences));
             nSequences = -1;
         }
-        if(uploadedRef) {
+        if (uploadedRef)
+        {
             free(reference);
             uploadedRef = 0;
         }

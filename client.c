@@ -45,7 +45,7 @@ int SocketReceive(int hSocket, char *Rsp, int RvcSize)
 {
     int shortRetval = -1;
     struct timeval tv;
-    tv.tv_sec = 20; /* 20 Secs Timeout */
+    tv.tv_sec = 50; /* 50 Secs Timeout */
     tv.tv_usec = 0;
     if (setsockopt(hSocket, SOL_SOCKET, SO_RCVTIMEO, (char *)&tv, sizeof(tv)) < 0)
     {
