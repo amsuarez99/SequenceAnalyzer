@@ -7,7 +7,9 @@ This program analyzes if a given sequence is present in a DNA genome.
 This program can be run as a normal program or as a daemon.
 
 ### Prerequisites
-To run the program you must be inside the root of the project directory
+- You must be inside the root of the project directory
+- Have a bin and files directory
+- Have the reference and sequence files in the files directory
 
 ### Run the server normally
 ```sh
