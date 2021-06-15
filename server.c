@@ -36,6 +36,7 @@ void *findSeq(void *x)
     char *offset;
     int index;
     int load = arguments.nSequences/arguments.nThreads;
+    // Add remaining load to the last thread
     if(arguments.thread_num == (arguments.nThreads - 1)) {
         load += arguments.nSequences - (load * arguments.nThreads);
     }
@@ -186,12 +187,6 @@ int main()
                 n += xRead;
             }
 
-            // Print message tail
-            // #if DEBUG == 1
-            // printf("Message tail: %s\n", buffer + strlen(buffer) - 10);
-            // printf("%c\n", *(buffer + strlen(buffer) - 1));
-            // #endif
-
             // View Option
             option = *(buffer + strlen(buffer) - 1);
             *(buffer + strlen(buffer) - 1) = '\0';
@@ -204,8 +199,12 @@ int main()
                     free(sequence);
                 }
                 uploadedSeq = 1;
+
+                // Copy Buffer to sequence
                 sequence = strdup(buffer);
                 printf("[+]Received sequence: %s (SHOWING TAIL)\n", sequence + strlen(sequence) - 10);
+
+                // Separate Sequences to array
                 nSequences = separateSequences(sequence, sequences);
             }
             else if (option == '1')
@@ -223,7 +222,7 @@ int main()
                 if (uploadedSeq && uploadedRef)
                 {
                     printf("[+]Client wants results...\n");
-                    strcpy(clientMsg, "====RESULTS====\nPercentage covered: 20%\nSequences used:\nAGAGAGGATT\nAGGGAGGAGT\n");
+                    // strcpy(clientMsg, "====RESULTS====\nPercentage covered: 20%\nSequences used:\nAGAGAGGATT\nAGGGAGGAGT\n");
                     const size_t nThreads = nSequences < NTHREADS ? nSequences : NTHREADS; // Get min
                     pthread_t threads[nThreads];
                     struct thread_attributes thread_args[nThreads];
